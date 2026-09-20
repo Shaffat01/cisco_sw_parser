@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Network Parser</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 20px; }
+        .card-header { background-color: white; border-bottom: 2px solid #e2e8f0; font-weight: bold; border-radius: 12px 12px 0 0 !important; }
+        .table-subtle th { background-color: #f8fafc; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 13px; }
+        .badge-access { background-color: #dcfce7; color: #0f172a; border: 1px solid #94a3b8;}
+        .badge-trunk { background-color: #fee2e2; color: #991b1b; border: 1px solid #f87171;}
+    </style>
+</head>
+<body>
+
+<div class="container py-5">
+    <div class="text-center mb-4">
+        <h2 class="fw-bold text-primary"><i class="fa-solid fa-wand-magic-sparkles me-2"></i>Smart Switch Config Reader</h2>
+        <p class="text-muted">Paste your raw switch text below to translate it into simple reports.</p>
+    </div>
+
+    <!-- Input Section -->
+    <div class="card" id="inputCard">
+        <div class="card-body">
+            <label class="form-label fw-bold">Paste Raw Config Here (sh run, sh cdp, sh vlan):</label>
+            <textarea id="rawText" class="form-control mb-3" rows="10" placeholder="Paste all your text output here..."></textarea>
+            <button onclick="parseData()" class="btn btn-primary w-100 fw-bold py-2"><i class="fa-solid fa-file-import me-2"></i>Analyze & Simplify</button>
+        </div>
+    </div>
+
+    <!-- Output Section (Hidden by default) -->
+    <div id="outputSection" class="d-none">
+        <button onclick="resetView()" class="btn btn-outline-secondary mb-4"><i class="fa-solid fa-arrow-left me-2"></i>Back to Paste</button>
+
+        <!-- General Info -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card border-primary border-top border-4">
+                    <div class="card-body text-center">
+                        <p class="text-muted mb-1 text-uppercase fw-bold small">Switch Name (Hostname)</p>
+                        <h3 id="lblHost" class="text-primary fw-bold"></h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card border-success border-top border-4">
+                    <div class="card-body text-center">
+                        <p class="text-muted mb-1 text-uppercase fw-bold small">Default Gateway</p>
+                        <h3 id="lblGateway" class="text-success fw-bold"></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Management IP -->
+        <div class="card">
+            <div class="card-header text-info"><i class="fa-solid fa-network-wired me-2"></i>Switch IP Addresses (For Login)</div>
+            <div class="card-body p-0">
+                <table class="table table-hover table-subtle m-0">
+                    <thead><tr><th>VLAN Name/ID</th><th>IP Address</th><th>Subnet Mask</th></tr></thead>
+                    <tbody id="tblIps"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Connected Devices (CDP) -->
+        <div class="card">
+            <div class="card-header text-danger"><i class="fa-solid fa-diagram-project me-2"></i>Devices Connected to this Switch (Neighbors)</div>
+            <div class="card-body p-0">
+                <table class="table table-hover table-subtle m-0">
+                    <thead><tr><th>Our Port</th><th>Connected Device Name</th><th>Device Type</th><th>Their IP</th><th>Their Port</th></tr></thead>
+                    <tbody id="tblCdp"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Interface Settings -->
+        <div class="card">
+            <div class="card-header text-primary"><i class="fa-solid fa-ethernet me-2"></i>Port Settings & Usage</div>
+            <div class="card-body p-0">
+                <table class="table table-hover table-subtle m-0">
+                    <thead><tr><th>Port Number</th><th>Usage / Description</th><th>Port Type</th><th>Allowed VLANs</th></tr></thead>
+                    <tbody id="tblPorts"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- VLAN DB -->
+        <div class="card">
+            <div class="card-header text-warning text-dark"><i class="fa-solid fa-layer-group me-2"></i>Available VLANs</div>
+            <div class="card-body p-0">
+                <table class="table table-hover table-subtle m-0">
+                    <thead><tr><th>VLAN ID</th><th>VLAN Name</th><th>Assigned Ports</th></tr></thead>
+                    <tbody id="tblVlans"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    async function parseData() {
+        const text = document.getElementById('rawText').value;
+        if (!text) { alert("Please paste some text first!"); return; }
+
+        const res = await fetch('/api/parse', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text_data: text})
+        });
+
+        const r = await res.json();
+        if (r.status === 'success') {
+            const d = r.data;
+
+            // Header Info
+            document.getElementById('lblHost').textContent = d.hostname;
+            document.getElementById('lblGateway').textContent = d.gateway;
+
+            // Mgmt IPs
+            document.getElementById('tblIps').innerHTML = d.management_ips.map(i => 
+                `<tr><td>VLAN ${i.vlan}</td><td class="fw-bold">${i.ip}</td><td>${i.mask}</td></tr>`
+            ).join('') || `<tr><td colspan="3" class="text-center text-muted">No IP found</td></tr>`;
+
+            // CDP Neighbors
+            document.getElementById('tblCdp').innerHTML = d.cdp.map(c => 
+                `<tr><td class="fw-bold">${c.local_port}</td><td>${c.device}</td><td>${c.platform}</td><td>${c.ip}</td><td>${c.remote_port}</td></tr>`
+            ).join('') || `<tr><td colspan="5" class="text-center text-muted">No devices found</td></tr>`;
+
+            // Port Config
+            document.getElementById('tblPorts').innerHTML = d.interfaces.map(p => {
+                let badge = p.mode.includes("Access") ? `<span class="badge badge-access px-2 py-1">${p.mode}</span>` : `<span class="badge badge-trunk px-2 py-1">${p.mode}</span>`;
+                return `<tr><td class="fw-bold text-secondary">${p.port}</td><td>${p.description}</td><td>${badge}</td><td class="fw-bold">${p.vlans}</td></tr>`
+            }).join('') || `<tr><td colspan="4" class="text-center text-muted">No port configuration found</td></tr>`;
+
+            // VLANs
+            document.getElementById('tblVlans').innerHTML = d.vlans.map(v => 
+                `<tr><td class="fw-bold">${v.id}</td><td>${v.name}</td><td><small>${v.ports}</small></td></tr>`
+            ).join('') || `<tr><td colspan="3" class="text-center text-muted">No VLAN data found</td></tr>`;
+
+
+            // Switch views
+            document.getElementById('inputCard').classList.add('d-none');
+            document.getElementById('outputSection').classList.remove('d-none');
+        } else {
+            alert("Error: " + r.message);
+        }
+    }
+
+    function resetView() {
+        document.getElementById('inputCard').classList.remove('d-none');
+        document.getElementById('outputSection').classList.add('d-none');
+        document.getElementById('rawText').value = '';
+    }
+</script>
+
+</body>
+</html>
